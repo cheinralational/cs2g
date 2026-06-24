@@ -13,7 +13,7 @@
 相关工作参考：
 
 - [**CS2S (ControlS2S)**](https://github.com/zexianghui/CS2S_pose_environment) — 迭代单应性调整（IHA）姿态对齐与文本引导环境控制
-- [**CrossGeo**](https://github.com/YujiaoShi/HighlyAccurate) — 跨地理域泛化与 CVUSA/KITTI/VIGOR 联合训练范式
+- [**CrossGeo**](https://arxiv.org/abs/2605.07978v1) — 跨地理域卫星-街景数据集与泛化方法，作者 Zhongyao Tuo、Qiwei Wang 等
 - [**SPND**](https://github.com/chronos123/SpND) — 球面全景图像的可变形卷积投影模型
 
 ---
@@ -84,7 +84,7 @@ curl -L https://huggingface.co/CompVis/stable-diffusion-v-1-4-original/resolve/m
 | **CVUSA** | 卫星 256×256 → 全景 128×512，美国 | [Sat2Density](https://github.com/qianmingduowan/Sat2Density) |
 | **KITTI** | 卫星 → 前视相机 + 相机内外参，德国 | [HighlyAccurate](https://github.com/YujiaoShi/HighlyAccurate) |
 | **VIGOR** | 卫星 → 全景 + GPS/相机参数，4 个美国城市 | [VIGOR](https://github.com/Jeff-Zilence/VIGOR) |
-| **CrossGeo** | 卫星 256×256 → 地面 256×256 + UAV，含 3D quad_info.json | 来自 [CrossGeo](https://github.com/YujiaoShi/HighlyAccurate) 项目 |
+| **CrossGeo** | 卫星 256×256 → 地面 256×256 + UAV，含 3D quad_info.json | 来自 [CrossGeo](https://arxiv.org/abs/2605.07978v1) 论文，如果您需要该数据集，可致电作者 Zhongyao Tuo 或 Qiwei Wang 获取 |
 
 数据集目录结构：
 
