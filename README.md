@@ -20,46 +20,40 @@
 
 ## 核心原理
 
-### 整体流程
+### 输入输出
 
-```
-卫星图像 (256×256)
-    │
-    ▼
-VIT_224 卫星条件编码器 ──→ [B, 257, 768] 条件特征
-    │
-    ▼
-潜在空间 DDIM 去噪 ──→ 每一步执行 IHA 姿态校正
-    │  ▲
-    │  ├── UNet (CrossAttention + 文本交叉注意力)
-    │  ├── 可选: SphericalControlNet (球面几何约束)
-    │  └── 可选: CLIP 文本嵌入 (环境控制)
-    │
-    ▼
-VAE Decoder
-    │
-    ▼
-街景图像 (128×512 或 256×256)
-```
+| 项 | 说明 |
+|----|------|
+| **输入** | RGB 卫星图像（任意分辨率，自动 resize 到 256×256），可选文本提示（如 "in autumn"、"at night"） |
+| **输出** | 对应位置的 RGB 街景图像（CVUSA 为 128×512 全景，CrossGeo 为 256×256 地面视角） |
+| **基础工具** | Stable Diffusion v1.4（VAE 编码/解码 + UNet 去噪骨架）、OpenAI CLIP（文本嵌入）、VIT_224（卫星条件编码器） |
 
-### 两阶段训练
+### 训练范式
 
-| 阶段 | 训练内容 | 冻结部分 |
+两阶段训练，Stage 1 训练 UNet + 卫星条件编码器，Stage 2 冻结基础模型仅微调 SphericalControlNet：
+
+| 阶段 | 训练模块 | 冻结模块 |
 |------|---------|---------|
-| **Stage 1** | UNet 去噪器 + VIT_224 卫星编码器 + 地面条件模型 | VAE（使用 SD v1.4 预训练权重） |
-| **Stage 2** | SphericalControlNet（~388M 参数，球面可变形卷积） | VAE + UNet + VIT_224（全部冻结） |
+| **Stage 1** | UNet 去噪器 + VIT_224 卫星编码器 + 地面条件模型 | VAE（SD v1.4 权重） |
+| **Stage 2** | SphericalControlNet（约 388M 参数） | VAE + UNet + VIT_224 |
 
-### 迭代单应性调整（IHA）
+### 创新点
 
-在 DDIM 去噪的每一步，利用当前潜在表示与卫星几何投影计算仿射变换矩阵 `H_matrix`，通过 `affine_grid` + `grid_sample` 对潜在特征进行空间校正，逐步消除卫星视角与街景视角之间的姿态偏差。
+**1. 迭代单应性调整（IHA）— 动态姿态对齐**
 
-### 球面 ControlNet
+传统方法仅在前处理阶段做一次几何投影，去噪过程中的姿态漂移无法纠正。IHA 在 DDIM 去噪的每一步利用当前潜在特征与卫星几何信息动态计算仿射变换 `H_matrix`，通过 `torch.nn.functional.affine_grid` + `grid_sample` 实时校正潜在空间姿态，确保生成图像的方向一致性。
 
-针对全景图像的球面几何特性，使用 `SphereDeformableConv2d`（可变形卷积 + 水平方向循环填充）替代标准卷积，使 ControlNet 能够正确建模全景图左右边界连续的特性。
+**2. 球面 ControlNet — 全景几何约束**
 
-### Classifier-Free Guidance（CFG）
+普通卷积对全景图左右边界的拼缝不敏感。本项目的 `SphericalControlNet` 引入 `SphereDeformableConv2d`：水平方向使用 `F.pad(mode='circular')` 实现循环填充，同时用可学习偏移量（offset）自适应调整采样位置，使 ControlNet 能够捕获全景图像的球面几何特性。
 
-推理时通过混合条件与无条件预测进行引导采样，`unconditional_guidance_scale` 越大生成质量越高、多样性越低，默认值 7.5。
+**3. 动态潜在空间适配**
+
+不同编码器产生的潜在表示尺寸不同（CVUSA 为 `[4,16,64]`，CrossGeo 为 `[4,32,32]`），硬编码会导致跨数据集崩溃。本项目在运行时从 VAE encoder 输出中动态推导潜在形状（`enc.shape`），所有采样器、几何变换中的形状参数均由实际编码推导，消除了对特定数据集的依赖。
+
+**4. Classifier-Free Guidance 与文本环境控制**
+
+推理时支持 CFG 引导采样，并可注入 CLIP 文本嵌入实现零样本环境控制（季节、光照、天气），无需针对每种环境条件重新训练。
 
 ---
 
@@ -94,7 +88,7 @@ curl -L https://huggingface.co/CompVis/stable-diffusion-v-1-4-original/resolve/m
 | **CVUSA** | 卫星 256×256 → 全景 128×512，美国 | [Sat2Density](https://github.com/qianmingduowan/Sat2Density) |
 | **KITTI** | 卫星 → 前视相机 + 相机内外参，德国 | [HighlyAccurate](https://github.com/YujiaoShi/HighlyAccurate) |
 | **VIGOR** | 卫星 → 全景 + GPS/相机参数，4 个美国城市 | [VIGOR](https://github.com/Jeff-Zilence/VIGOR) |
-| **CrossGeo** | 卫星 256×256 → 地面 256×256 + UAV，含 3D quad_info.json | 自定义跨域数据集 |
+| **CrossGeo** | 卫星 256×256 → 地面 256×256 + UAV，含 3D quad_info.json | 来自 [CrossGeo](https://github.com/YujiaoShi/HighlyAccurate) 项目 |
 
 数据集目录结构：
 
