@@ -25,7 +25,7 @@
 | 项 | 说明 |
 |----|------|
 | **输入** | RGB 卫星图像（任意分辨率，自动 resize 到 256×256），可选文本提示（如 "in autumn"、"at night"） |
-| **输出** | 对应位置的 RGB 街景图像（CVUSA 为 128×512 全景，CrossGeo 为 256×256 地面视角） |
+| **输出** | 对应位置的 RGB 街景图像（CVUSA 下为 128×512 全景，其他数据集按各自分辨率） |
 | **基础工具** | Stable Diffusion v1.4（VAE 编码/解码 + UNet 去噪骨架）、OpenAI CLIP（文本嵌入）、VIT_224（卫星条件编码器） |
 
 ### 训练范式
@@ -45,7 +45,7 @@
 
 **2. 动态潜在空间适配**
 
-不同编码器产生的潜在表示尺寸不同（CVUSA 为 `[4,16,64]`，CrossGeo 为 `[4,32,32]`），硬编码会导致跨数据集崩溃。本项目在运行时从 VAE encoder 输出中动态推导潜在形状（`enc.shape`），所有采样器、几何变换中的形状参数均由实际编码推导，消除了对特定数据集的依赖。
+不同数据集产生的潜在表示尺寸不同（如 CVUSA 为 `[4,16,64]`），硬编码会导致跨数据集崩溃。本项目在运行时从 VAE encoder 输出中动态推导潜在形状（`enc.shape`），所有采样器、几何变换中的形状参数均由实际编码推导，消除了对特定数据集的依赖。
 
 **3. 统一训练入口与 CG 分支修复**
 
@@ -79,12 +79,13 @@ curl -L https://huggingface.co/CompVis/stable-diffusion-v-1-4-original/resolve/m
 
 ## 数据集
 
+本项目支持 CVUSA、KITTI、VIGOR 等公开数据集，也可适配其他卫星-街景配对数据集。
+
 | 数据集 | 数据格式 | 来源 |
 |--------|---------|------|
 | **CVUSA** | 卫星 256×256 → 全景 128×512，美国 | [Sat2Density](https://github.com/qianmingduowan/Sat2Density) |
 | **KITTI** | 卫星 → 前视相机 + 相机内外参，德国 | [HighlyAccurate](https://github.com/YujiaoShi/HighlyAccurate) |
 | **VIGOR** | 卫星 → 全景 + GPS/相机参数，4 个美国城市 | [VIGOR](https://github.com/Jeff-Zilence/VIGOR) |
-| **CrossGeo** | 卫星 256×256 → 地面 256×256 + UAV，含 3D quad_info.json | 来自 [CrossGeo](https://arxiv.org/abs/2605.07978v1) 论文，如果您需要该数据集，可致电作者 Zhongyao Tuo 或 Qiwei Wang 获取 |
 
 数据集目录结构：
 
@@ -92,17 +93,7 @@ curl -L https://huggingface.co/CompVis/stable-diffusion-v-1-4-original/resolve/m
 dataset/
 ├── CVUSA/
 ├── KITTI_location/
-├── VIGOR/
-└── crossgeo/
-    └── data/
-        ├── pair_0/
-        │   ├── ground_1_rgb.jpg
-        │   ├── ground_1_satellite.png
-        │   ├── ground_2_rgb.jpg
-        │   ├── ground_2_satellite.png
-        │   └── quad_info.json
-        ├── pair_1/
-        └── ...
+└── VIGOR/
 ```
 
 ---
@@ -118,9 +109,11 @@ python _verify_stage2.py        # Stage-2 验证
 
 ### Stage 1 训练（基础扩散模型）
 
+以 CVUSA 数据集为例：
+
 ```bash
 python cs2g/train_all.py \
-    --dataset crossgeo \
+    --dataset CVUSA \
     --stage 1 \
     --devices 0 \
     --max-epochs 50 \
@@ -135,7 +128,7 @@ python cs2g/train_all.py \
 
 ```bash
 python cs2g/train_all.py \
-    --dataset crossgeo \
+    --dataset CVUSA \
     --stage 2 \
     --stage1-ckpt outputs/stage1/<run_name>/checkpoints/last.ckpt \
     --devices 0 \
@@ -151,9 +144,9 @@ python cs2g/train_all.py \
 
 ```bash
 python cs2g/inference_sphere.py \
-    --config cs2g/configs/Boost_Sat2Den/crossgeo_geo_ldm_sphere.yaml \
+    --config cs2g/configs/Boost_Sat2Den/CVUSA_geo_ldm.yaml \
     --ckpt outputs/stage2/<run_name>/checkpoints/last.ckpt \
-    --sat dataset/crossgeo/data/pair_0/ground_1_satellite.png \
+    --sat path/to/satellite_image.png \
     --output output.png \
     --steps 50 \
     --scale 7.5
@@ -224,7 +217,7 @@ cs2g/
 ├── utils/                                  # 工具函数 (instantiate_from_config, callback 等)
 ├── train_all.py                            # ★ 统一训练入口
 ├── visualization.py                        # 批量推理/可视化入口
-├── inference_sphere.py                     # CrossGeo 单图推理入口
+├── inference_sphere.py                     # SphericalControlNet 单图推理入口
 └── main.py                                 # 原始训练入口
 ```
 
@@ -234,7 +227,7 @@ cs2g/
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--dataset` | 数据集: `crossgeo` / `CVUSA` / `KITTI` / `VIGOR` | `crossgeo` |
+| `--dataset` | 数据集: `CVUSA` / `KITTI` / `VIGOR`（可扩展） | `CVUSA` |
 | `--stage` | 训练阶段: `1`（基础）/ `2`（SphericalControlNet） | `1` |
 | `--devices` | GPU 设备号 | `"0"` |
 | `--max-epochs` | 最大训练轮数 | `50` |
